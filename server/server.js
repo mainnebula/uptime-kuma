@@ -98,6 +98,7 @@ const app = server.app;
 log.debug("server", "Importing Monitor");
 const Monitor = require("./model/monitor");
 const User = require("./model/user");
+const { Tags } = require("./tags");
 
 log.debug("server", "Importing Settings");
 const {
@@ -1238,8 +1239,7 @@ let needSetup = false;
                 bean.color = tag.color;
                 await R.store(bean);
 
-                // Tag name/color changed — reload entire cache since many monitors may use this tag
-                await Monitor.preloadTags();
+                await Tags.reload();
 
                 callback({
                     ok: true,
@@ -1261,8 +1261,7 @@ let needSetup = false;
 
                 await R.exec("DELETE FROM tag WHERE id = ? ", [tagID]);
 
-                // Tag deleted — reload entire cache since many monitors may have used this tag
-                await Monitor.preloadTags();
+                await Tags.reload();
 
                 callback({
                     ok: true,
@@ -1281,13 +1280,7 @@ let needSetup = false;
             try {
                 checkLogin(socket);
 
-                await R.exec("INSERT INTO monitor_tag (tag_id, monitor_id, value) VALUES (?, ?, ?)", [
-                    tagID,
-                    monitorID,
-                    value,
-                ]);
-
-                await Monitor.invalidateTagCache(monitorID);
+                await Tags.addMonitorTag(tagID, monitorID, value);
                 await server.sendUpdateMonitorIntoList(socket, monitorID);
 
                 callback({
@@ -1307,13 +1300,7 @@ let needSetup = false;
             try {
                 checkLogin(socket);
 
-                await R.exec("UPDATE monitor_tag SET value = ? WHERE tag_id = ? AND monitor_id = ?", [
-                    value,
-                    tagID,
-                    monitorID,
-                ]);
-
-                await Monitor.invalidateTagCache(monitorID);
+                await Tags.editMonitorTag(tagID, monitorID, value);
                 await server.sendUpdateMonitorIntoList(socket, monitorID);
 
                 callback({
@@ -1333,13 +1320,7 @@ let needSetup = false;
             try {
                 checkLogin(socket);
 
-                await R.exec("DELETE FROM monitor_tag WHERE tag_id = ? AND monitor_id = ? AND value = ?", [
-                    tagID,
-                    monitorID,
-                    value,
-                ]);
-
-                await Monitor.invalidateTagCache(monitorID);
+                await Tags.deleteMonitorTag(tagID, monitorID, value);
                 await server.sendUpdateMonitorIntoList(socket, monitorID);
 
                 callback({
@@ -1748,7 +1729,7 @@ let needSetup = false;
         // Preload all monitor tags in a single query to avoid per-monitor DB queries during startup.
         // SQLite uses a single connection, so N individual getTags() calls would serialize and
         // compete with heartbeat DB operations, causing connection pool exhaustion.
-        await Monitor.preloadTags();
+        await Tags.loadAll();
 
         await startMonitors();
 
